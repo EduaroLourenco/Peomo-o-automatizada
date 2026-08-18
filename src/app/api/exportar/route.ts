@@ -40,31 +40,37 @@ export async function POST(req: Request) {
           if (!cellData) {
             rowData.push('-');
           } else {
-            rowData.push(cellData.preco_oferta);
+            // Export the price and status
+            const status = cellData.status_aprovacao === 'Aprovado' ? '✅ Aprovado' : '❌ Reprovado';
+            rowData.push(`R$ ${cellData.preco_oferta.toFixed(2)} - ${status}`);
           }
         }
         
         const newRow = worksheet.addRow(rowData);
         
-        // Format currency columns
         newRow.eachCell((cell, colNumber) => {
-          if (colNumber > 2 && cell.value !== '-') {
-            cell.numFmt = '"R$" #,##0.00';
-          }
           cell.alignment = { horizontal: 'center', vertical: 'middle' };
+          if (colNumber > 2 && cell.value !== '-') {
+            // Se o texto contém Aprovado, pintar de verde suave
+            if (String(cell.value).includes('Aprovado')) {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE6F4EA' } };
+            } else {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFCE8E6' } };
+            }
+          }
         });
       }
     }
 
     // Auto-fit columns
     worksheet.columns.forEach((column, index) => {
-      column.width = index < 2 ? 20 : 15;
+      column.width = index < 2 ? 20 : 35;
     });
 
     // Generate buffer
     const buffer = await workbook.xlsx.writeBuffer();
 
-    return new NextResponse(buffer, {
+    return new NextResponse(buffer as any, {
       status: 200,
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

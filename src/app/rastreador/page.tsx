@@ -26,8 +26,7 @@ export default function RastreadorMatrizPage() {
 
   // Filters
   const [searchTerm, setSearchTerm] = useState("");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
+  const [selectedPeriods, setSelectedPeriods] = useState<string[]>([]);
   const [selectedCampaigns, setSelectedCampaigns] = useState<string[]>([]);
   const [onlyCurvaA, setOnlyCurvaA] = useState(false);
   
@@ -59,6 +58,22 @@ export default function RastreadorMatrizPage() {
     return Array.from(campaigns).sort();
   }, [data]);
 
+  // Unique periods
+  const allPeriods = useMemo(() => {
+    const periods = new Set<string>();
+    data.forEach(d => {
+      const parts = d.campanha.split(' | ');
+      if (parts.length > 1) periods.add(parts[1]);
+    });
+    return Array.from(periods).sort();
+  }, [data]);
+
+  const togglePeriod = (per: string) => {
+    setSelectedPeriods(prev => 
+      prev.includes(per) ? prev.filter(p => p !== per) : [...prev, per]
+    );
+  };
+
   const toggleCampaign = (camp: string) => {
     setSelectedCampaigns(prev => 
       prev.includes(camp) ? prev.filter(c => c !== camp) : [...prev, camp]
@@ -74,25 +89,16 @@ export default function RastreadorMatrizPage() {
       
       const matchCampaign = selectedCampaigns.length === 0 || selectedCampaigns.includes(item.campanha);
       
-      let matchDate = true;
-      const itemDate = new Date(item.data_processamento);
-      if (startDate) {
-        const start = new Date(startDate);
-        start.setHours(0,0,0,0);
-        if (itemDate < start) matchDate = false;
-      }
-      if (endDate) {
-        const end = new Date(endDate);
-        end.setHours(23,59,59,999);
-        if (itemDate > end) matchDate = false;
-      }
+      const parts = item.campanha.split(' | ');
+      const period = parts.length > 1 ? parts[1] : null;
+      const matchDate = selectedPeriods.length === 0 || (period && selectedPeriods.includes(period));
 
       const isCurvaA = curvaAData.skus.includes(item.sku) || curvaAData.mlbs.includes(item.mlb);
       const matchCurvaA = onlyCurvaA ? isCurvaA : true;
 
       return matchSearch && matchCampaign && matchDate && matchCurvaA;
     });
-  }, [data, searchTerm, selectedCampaigns, startDate, endDate, onlyCurvaA]);
+  }, [data, searchTerm, selectedCampaigns, selectedPeriods, onlyCurvaA]);
 
   // Pivot Data Grouping
   const pivotData = useMemo(() => {
@@ -215,30 +221,26 @@ export default function RastreadorMatrizPage() {
             </div>
           </div>
           
-          <div className="flex w-full xl:w-1/3 gap-4">
-            <div className="w-1/2 space-y-1.5">
-              <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Início</label>
-              <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
-                <input 
-                  type="date" 
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="w-full bg-slate-900/80 border border-white/10 rounded-xl py-2.5 pl-10 pr-3 text-sm text-slate-200 focus:outline-none focus:border-primary/50 transition-all [color-scheme:dark]"
-                />
-              </div>
-            </div>
-            <div className="w-1/2 space-y-1.5">
-              <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Fim</label>
-              <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
-                <input 
-                  type="date" 
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="w-full bg-slate-900/80 border border-white/10 rounded-xl py-2.5 pl-10 pr-3 text-sm text-slate-200 focus:outline-none focus:border-primary/50 transition-all [color-scheme:dark]"
-                />
-              </div>
+          <div className="w-full xl:w-1/3 space-y-1.5">
+            <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Período de Vigência</label>
+            <div className="flex flex-wrap gap-2">
+              {allPeriods.length === 0 ? <span className="text-sm text-slate-600 py-2">Nenhum período detectado</span> : null}
+              {allPeriods.map(per => (
+                <button
+                  key={per}
+                  onClick={() => togglePeriod(per)}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-all ${
+                    selectedPeriods.length === 0 || selectedPeriods.includes(per)
+                      ? 'bg-amber-500/20 border-amber-500/30 text-amber-500'
+                      : 'bg-slate-800/50 border-white/5 text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <Calendar className="w-3 h-3" />
+                    {per}
+                  </div>
+                </button>
+              ))}
             </div>
           </div>
 
@@ -246,19 +248,23 @@ export default function RastreadorMatrizPage() {
             <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Filtrar Campanhas</label>
             <div className="flex flex-wrap gap-2">
               {allCampaigns.length === 0 ? <span className="text-sm text-slate-600 py-2">Carregando...</span> : null}
-              {allCampaigns.map(camp => (
-                <button
-                  key={camp}
-                  onClick={() => toggleCampaign(camp)}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-all ${
-                    selectedCampaigns.length === 0 || selectedCampaigns.includes(camp)
-                      ? 'bg-primary/20 border-primary/30 text-primary'
-                      : 'bg-slate-800/50 border-white/5 text-slate-500 hover:text-slate-300'
-                  }`}
-                >
-                  {camp}
-                </button>
-              ))}
+              {allCampaigns.map(camp => {
+                const title = camp.split(' | ')[0];
+                return (
+                  <button
+                    key={camp}
+                    onClick={() => toggleCampaign(camp)}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-all ${
+                      selectedCampaigns.length === 0 || selectedCampaigns.includes(camp)
+                        ? 'bg-primary/20 border-primary/30 text-primary'
+                        : 'bg-slate-800/50 border-white/5 text-slate-500 hover:text-slate-300'
+                    }`}
+                    title={camp}
+                  >
+                    {title}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -281,14 +287,27 @@ export default function RastreadorMatrizPage() {
                 <TableRow className="border-b border-border hover:bg-transparent bg-muted/50">
                   <TableHead className="text-foreground font-semibold min-w-[180px] sticky left-0 bg-muted/50 z-10 border-r border-border">SKU</TableHead>
                   <TableHead className="text-foreground font-semibold min-w-[150px] sticky left-[180px] bg-muted/50 z-10 border-r border-border">MLB</TableHead>
-                  {pivotData.columns.map(camp => (
-                    <TableHead key={camp} className="text-center text-muted-foreground font-medium min-w-[160px] border-l border-border">
-                      <div className="flex items-center justify-center gap-2">
-                        <Tag className="w-3.5 h-3.5 text-primary" />
-                        {camp}
-                      </div>
-                    </TableHead>
-                  ))}
+                  {pivotData.columns.map(camp => {
+                    const parts = camp.split(' | ');
+                    const title = parts[0];
+                    const vigencia = parts.length > 1 ? parts[1] : null;
+                    return (
+                      <TableHead key={camp} className="text-center min-w-[200px] border-l border-border p-3">
+                        <div className="flex flex-col items-center justify-center gap-1.5">
+                          <div className="flex items-center gap-1.5 text-muted-foreground font-medium text-xs">
+                            <Tag className="w-3.5 h-3.5 text-primary shrink-0" />
+                            <span className="truncate max-w-[180px]" title={title}>{title}</span>
+                          </div>
+                          {vigencia && (
+                            <div className="flex items-center gap-1 text-emerald-500 font-semibold text-[11px] bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                              <Calendar className="w-3 h-3 shrink-0" />
+                              {vigencia}
+                            </div>
+                          )}
+                        </div>
+                      </TableHead>
+                    );
+                  })}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -417,7 +436,25 @@ export default function RastreadorMatrizPage() {
                     <span className="text-sm text-blue-600 dark:text-blue-400 font-semibold">Rebate / Redução de Tarifa</span>
                   </div>
                   <span className="text-sm font-bold text-blue-700 dark:text-blue-300">
-                    {selectedCell.reducao_tarifa || "Não informado"}
+                    {(() => {
+                      const val = selectedCell.reducao_tarifa;
+                      if (!val || val === "Não" || val === "0") return "Não";
+                      if (val.includes('%')) return val;
+                      const num = parseFloat(val.replace(',', '.'));
+                      if (!isNaN(num)) {
+                        // Se for menor que 1 (ex: 0.06), é 6%
+                        if (num < 1) return `${Math.round(num * 100)}%`;
+                        // Se for maior que 1, provavelmente é o valor absoluto em R$ (ex: 90.60).
+                        // Calculamos a porcentagem baseada no preco_oferta
+                        const preco = selectedCell.preco_oferta;
+                        if (preco && preco > 0) {
+                          return `${Math.round((num / preco) * 100)}%`;
+                        }
+                        // Fallback se não tiver preço oferta
+                        return `R$ ${num.toFixed(2).replace('.', ',')}`;
+                      }
+                      return val;
+                    })()}
                   </span>
                 </div>
               </div>

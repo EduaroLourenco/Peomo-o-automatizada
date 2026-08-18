@@ -10,6 +10,7 @@ export default function ProcessarPromocoesPage() {
   const [files, setFiles] = useState<File[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [outputFormat, setOutputFormat] = useState<"zip" | "xlsx">("zip");
+  const [extraDiscount, setExtraDiscount] = useState<string>("0");
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -33,6 +34,7 @@ export default function ProcessarPromocoesPage() {
       const formData = new FormData();
       files.forEach(file => formData.append("file", file));
       formData.append("format", outputFormat);
+      formData.append("extraDiscount", extraDiscount);
 
       const response = await fetch("/api/processar", {
         method: "POST",
@@ -146,6 +148,37 @@ export default function ProcessarPromocoesPage() {
         {/* Right Column: Options & Submit */}
         <div className="flex flex-col gap-8">
           
+          <Card className="border-white/10 bg-white/[0.02] backdrop-blur-xl shadow-2xl rounded-2xl overflow-hidden">
+            <CardHeader className="border-b border-white/5 pb-4">
+              <CardTitle className="text-xl font-bold text-white flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-primary" /> Regras Complementares
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-6">
+              <div className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium text-slate-300 block mb-2">Desconto Extra (Agressividade)</label>
+                  <select 
+                    value={extraDiscount}
+                    onChange={(e) => setExtraDiscount(e.target.value)}
+                    className="w-full bg-slate-900/50 border border-white/10 rounded-xl py-3 px-4 text-sm text-slate-200 focus:outline-none focus:border-primary/50 transition-all cursor-pointer appearance-none"
+                  >
+                    <option value="0">0% (Sem desconto extra)</option>
+                    <option value="0.02">+2% de desconto</option>
+                    <option value="0.04">+4% de desconto</option>
+                    <option value="0.05">+5% de desconto</option>
+                    <option value="0.06">+6% de desconto</option>
+                    <option value="0.08">+8% de desconto</option>
+                    <option value="0.10">+10% de desconto</option>
+                  </select>
+                </div>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Reduz o preço mínimo exigido pela tabela em {Number(extraDiscount) * 100}%, facilitando a aprovação das promoções.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
           <Card className="border-white/10 bg-white/[0.02] backdrop-blur-xl shadow-2xl rounded-2xl overflow-hidden">
             <CardHeader className="border-b border-white/5 pb-6">
               <CardTitle className="text-xl font-bold text-white">Configurações de Saída</CardTitle>

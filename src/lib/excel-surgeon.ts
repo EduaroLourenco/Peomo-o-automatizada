@@ -51,24 +51,27 @@ export function processItem(
   saleFee: number | null, 
   finalPrice: number | null, 
   originalPrice: number | null,
-  data: FormulaBaseData
+  data: FormulaBaseData,
+  positiveAction: string = "Participar",
+  negativeAction: string = "Não participar",
+  extraDiscount: number = 0
 ) {
   // Caso A: Com Redução de Tarifa
   if (saleFee !== null && saleFee > 0) {
-    if (!finalPrice) return { action: "Não participar", pendencia: "redução ou preço final ausente", newPrice: null };
+    if (!finalPrice) return { action: negativeAction, pendencia: "redução ou preço final ausente", newPrice: null };
     
     const entry = data.baseMlb.get(mlb);
-    if (!entry || !entry.padrao) return { action: "Não participar", pendencia: "MLB não está na aba Base MLB", newPrice: null };
+    if (!entry || !entry.padrao) return { action: negativeAction, pendencia: "MLB não está na aba Base MLB", newPrice: null };
     
     const reduzida = saleFee / finalPrice;
     const considerar = Math.max(Math.round(((roundup((entry.padrao - reduzida) * 100) + 0.5) / 100) * 10000) / 10000, 0.045);
     
     const tabela = getPrecoTabela(data, sku, mlb, considerar);
-    if (tabela === null) return { action: "Não participar", pendencia: `sem preço de tabela para a comissão ${(considerar*100).toFixed(1)}%`, newPrice: null };
+    if (tabela === null) return { action: negativeAction, pendencia: `sem preço de tabela para a comissão ${(considerar*100).toFixed(1)}%`, newPrice: null };
     
     const aprovado = (tabela - finalPrice) < 0 || finalPrice >= (tabela * 0.95);
     return { 
-      action: aprovado ? "Participar" : "Não participar", 
+      action: aprovado ? positiveAction : negativeAction, 
       pendencia: "", 
       newPrice: null, // Caso A não altera preço
       tabelaCalculada: tabela
@@ -77,12 +80,16 @@ export function processItem(
   // Caso B: Sem Redução de Tarifa
   else {
     const entry = data.baseMlb.get(mlb);
-    if (!entry || !entry.tipo) return { action: "Não participar", pendencia: "MLB não está na aba Base MLB", newPrice: null };
+    if (!entry || !entry.tipo) return { action: negativeAction, pendencia: "MLB não está na aba Base MLB", newPrice: null };
     
     const comissao = norm(entry.tipo).startsWith("cl") ? 0.115 : 0.165;
-    const p = getPrecoTabela(data, sku, mlb, comissao);
+    let p = getPrecoTabela(data, sku, mlb, comissao);
     
-    if (p === null) return { action: "Não participar", pendencia: "sem preço de tabela", newPrice: null };
+    if (p === null) return { action: negativeAction, pendencia: "sem preço de tabela", newPrice: null };
+    
+    if (extraDiscount > 0) {
+      p = p * (1 - extraDiscount);
+    }
     
     const newPrice = Math.round((p + 1e-9) * 100) / 100;
     
@@ -92,7 +99,7 @@ export function processItem(
     }
     
     return { 
-      action: "Participar", 
+      action: positiveAction, 
       pendencia, 
       newPrice,
       tabelaCalculada: p

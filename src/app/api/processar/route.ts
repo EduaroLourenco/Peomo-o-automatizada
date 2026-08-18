@@ -30,7 +30,7 @@ function extractText(val: any): string {
   return String(val);
 }
 
-async function processSingleFile(file: File, formulaData: any, fileCampanha: string) {
+async function processSingleFile(file: File, formulaData: any, fileCampanha: string, extraDiscount: number = 0) {
   const arrayBuffer = await file.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
 
@@ -73,13 +73,35 @@ async function processSingleFile(file: File, formulaData: any, fileCampanha: str
   const finalPriceColIndex = findCol(["final_price", "preço final"]);
   const saleFeeColIndex = findCol(["sale_fee", "redução", "tarifa"]);
   const actionColIndex = findCol(["action", "o que você quer fazer"]);
+  const dateColIndex = findCol(["date", "data"]);
   
   if (skuColIndex === -1 || mlbColIndex === -1 || finalPriceColIndex === -1 || actionColIndex === -1) {
     throw new Error(`Planilha ${file.name}: Faltam colunas obrigatórias (ITEM_ID, SKU, FINAL_PRICE ou ACTION)`);
   }
 
+  let localCampanha = fileCampanha;
+
+  // Descobrir quais os termos de ação esperados (ex: "Participar" vs "Aplicar proposta")
+  let positiveAction = "Participar";
+  let negativeAction = "Não participar";
+  
+  // Lê a primeira linha de dados para pegar a validação de dados da coluna de ação e a Data
+  const firstDataRow = targetWorksheet.getRow(headerRowIndex + 1);
+  const actionValidation = firstDataRow.getCell(actionColIndex).dataValidation;
+  
+  if (actionValidation && actionValidation.formulae && actionValidation.formulae[0]) {
+    // Ex: '"Aplicar proposta,Não aplicar"' -> ['Aplicar proposta', 'Não aplicar']
+    const options = actionValidation.formulae[0].replace(/['"]/g, '').split(',');
+    if (options.length >= 2) {
+      positiveAction = options[0].trim();
+      negativeAction = options[1].trim();
+    }
+  }
+
   const historyEntries = [];
   const xmlUpdates: { rowIndex: number, colLetter: string, value: string | number }[] = [];
+
+  let isDateExtracted = false;
 
   for (let i = headerRowIndex + 1; i <= targetWorksheet.rowCount; i++) {
     const row = targetWorksheet.getRow(i);
@@ -89,6 +111,27 @@ async function processSingleFile(file: File, formulaData: any, fileCampanha: str
     
     // "dados comecam na primeira linha cujo ITEM_ID casa com ^MLB\d+$"
     if (!/^MLB\d+$/i.test(rawMlb)) continue; 
+
+    if (!isDateExtracted && dateColIndex !== -1) {
+      const dataCampanha = extractText(row.getCell(dateColIndex).value).trim();
+      if (dataCampanha && dataCampanha !== "Vigência") {
+        localCampanha = `${localCampanha} | ${dataCampanha}`;
+      }
+      isDateExtracted = true;
+    }
+
+    // Se no primeiro data row (geralmente instrução) a validação não estava presente, 
+    // tentamos pegar da primeira linha real de dados
+    if (positiveAction === "Participar" && negativeAction === "Não participar") {
+      const rowValidation = row.getCell(actionColIndex).dataValidation;
+      if (rowValidation && rowValidation.formulae && rowValidation.formulae[0]) {
+        const options = rowValidation.formulae[0].replace(/['"]/g, '').split(',');
+        if (options.length >= 2) {
+          positiveAction = options[0].trim();
+          negativeAction = options[1].trim();
+        }
+      }
+    }
 
     const sku = rawSku;
     const mlb = rawMlb;
@@ -103,7 +146,7 @@ async function processSingleFile(file: File, formulaData: any, fileCampanha: str
     let originalPrice = opStr ? parseFloat(opStr) : null;
 
     // Processar usando o novo motor matemático
-    const result = processItem(mlb, sku, saleFee, finalPrice, originalPrice, formulaData);
+    const result = processItem(mlb, sku, saleFee, finalPrice, originalPrice, formulaData, positiveAction, negativeAction, extraDiscount);
 
     // Preparar update XML
     const actionLetter = getColLetter(actionColIndex);
@@ -118,10 +161,10 @@ async function processSingleFile(file: File, formulaData: any, fileCampanha: str
     historyEntries.push({
       mlb,
       sku,
-      campanha: fileCampanha,
+      campanha: localCampanha,
       preco_oferta: result.newPrice !== null ? result.newPrice : (finalPrice || 0),
       preco_tabela: result.tabelaCalculada || 0,
-      status_aprovacao: result.action === "Participar" ? "Aprovado" : "Reprovado (" + result.pendencia + ")",
+      status_aprovacao: result.action === "Aplicar proposta" || result.action === "Participar" ? "Aprovado" : "Reprovado (" + result.pendencia + ")",
       reducao_tarifa: sfStr || "Não"
     });
   }
@@ -141,6 +184,8 @@ export async function POST(req: NextRequest) {
     const formData = await req.formData();
     const files = formData.getAll("file") as File[];
     const format = formData.get("format") as string || "zip";
+    const extraDiscountStr = formData.get("extraDiscount") as string || "0";
+    const extraDiscount = parseFloat(extraDiscountStr);
 
     if (!files || files.length === 0) {
       return NextResponse.json({ error: "Nenhum arquivo enviado" }, { status: 400 });
@@ -154,7 +199,7 @@ export async function POST(req: NextRequest) {
       for (const file of files) {
         try {
           const fileCampanha = file.name.replace(/\.xlsx$/i, '');
-          const processedBuffer = await processSingleFile(file, formulaData, fileCampanha);
+          const processedBuffer = await processSingleFile(file, formulaData, fileCampanha, extraDiscount);
           zip.file(`processado_${file.name}`, processedBuffer);
         } catch (e: any) {
           console.error(`Erro processando ${file.name}:`, e);
@@ -176,7 +221,7 @@ export async function POST(req: NextRequest) {
       try {
         const file = files[0];
         const fileCampanha = file.name.replace(/\.xlsx$/i, '');
-        const processedBuffer = await processSingleFile(file, formulaData, fileCampanha);
+        const processedBuffer = await processSingleFile(file, formulaData, fileCampanha, extraDiscount);
         
         return new NextResponse(processedBuffer, {
           status: 200,
