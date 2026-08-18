@@ -41,9 +41,8 @@ export async function POST(req: Request) {
           if (!cellData) {
             rowData.push('-');
           } else {
-            // Export the price and status
-            const status = cellData.status_aprovacao === 'Aprovado' ? '✅ Aprovado' : '❌ Reprovado';
-            rowData.push(`R$ ${cellData.preco_oferta.toFixed(2)} - ${status}`);
+            // Export the price only
+            rowData.push(`R$ ${cellData.preco_oferta.toFixed(2).replace('.', ',')}`);
           }
         }
         
@@ -52,10 +51,11 @@ export async function POST(req: Request) {
         newRow.eachCell((cell, colNumber) => {
           cell.alignment = { horizontal: 'center', vertical: 'middle' };
           if (colNumber > 3 && cell.value !== '-') {
-            // Se o texto contém Aprovado, pintar de verde suave
-            if (String(cell.value).includes('Aprovado')) {
+            const camp = columns[colNumber - 4];
+            const cellData = mlbGroup.campaigns[camp];
+            if (cellData && cellData.status_aprovacao === 'Aprovado') {
               cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE6F4EA' } };
-            } else {
+            } else if (cellData) {
               cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFCE8E6' } };
             }
           }
