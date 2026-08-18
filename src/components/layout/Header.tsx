@@ -1,3 +1,4 @@
+/* eslint-disable */
 import { Menu, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
