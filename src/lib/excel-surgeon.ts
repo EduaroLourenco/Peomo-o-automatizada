@@ -1,0 +1,101 @@
+import JSZip from "jszip";
+import { supabase } from "@/lib/supabase";
+
+// Util functions for math
+export function roundup(x: number, d: number = 0): number {
+  const m = Math.pow(10, d);
+  const v = x * m;
+  if (v > 0) {
+    return Math.ceil(v - 1e-9) / m;
+  } else {
+    return -Math.ceil(-v - 1e-9) / m;
+  }
+}
+
+export function norm(s: any): string {
+  if (s == null) return "";
+  return String(s).normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+// Interfaces
+export interface BaseMLBEntry {
+  tipo: string;
+  padrao: number;
+}
+
+export interface FormulaBaseData {
+  baseMlb: Map<string, BaseMLBEntry>;
+  precosSKU: Map<string, Record<number, number>>;
+  precosMLB: Map<string, Record<number, number>>;
+}
+
+export function getPrecoTabela(data: FormulaBaseData, sku: string, mlb: string, comissao: number): number | null {
+  const k = Math.round(comissao * 1000) / 1000;
+  
+  if (data.precosSKU.has(sku)) {
+    const row = data.precosSKU.get(sku)!;
+    if (row[k] !== undefined) return row[k];
+  }
+  
+  if (data.precosMLB.has(mlb)) {
+    const row = data.precosMLB.get(mlb)!;
+    if (row[k] !== undefined) return row[k];
+  }
+  
+  return null;
+}
+
+export function processItem(
+  mlb: string, 
+  sku: string, 
+  saleFee: number | null, 
+  finalPrice: number | null, 
+  originalPrice: number | null,
+  data: FormulaBaseData
+) {
+  // Caso A: Com Redução de Tarifa
+  if (saleFee !== null && saleFee > 0) {
+    if (!finalPrice) return { action: "Não participar", pendencia: "redução ou preço final ausente", newPrice: null };
+    
+    const entry = data.baseMlb.get(mlb);
+    if (!entry || !entry.padrao) return { action: "Não participar", pendencia: "MLB não está na aba Base MLB", newPrice: null };
+    
+    const reduzida = saleFee / finalPrice;
+    const considerar = Math.max(Math.round(((roundup((entry.padrao - reduzida) * 100) + 0.5) / 100) * 10000) / 10000, 0.045);
+    
+    const tabela = getPrecoTabela(data, sku, mlb, considerar);
+    if (tabela === null) return { action: "Não participar", pendencia: `sem preço de tabela para a comissão ${(considerar*100).toFixed(1)}%`, newPrice: null };
+    
+    const aprovado = (tabela - finalPrice) < 0 || finalPrice >= (tabela * 0.95);
+    return { 
+      action: aprovado ? "Participar" : "Não participar", 
+      pendencia: "", 
+      newPrice: null, // Caso A não altera preço
+      tabelaCalculada: tabela
+    };
+  } 
+  // Caso B: Sem Redução de Tarifa
+  else {
+    const entry = data.baseMlb.get(mlb);
+    if (!entry || !entry.tipo) return { action: "Não participar", pendencia: "MLB não está na aba Base MLB", newPrice: null };
+    
+    const comissao = norm(entry.tipo).startsWith("cl") ? 0.115 : 0.165;
+    const p = getPrecoTabela(data, sku, mlb, comissao);
+    
+    if (p === null) return { action: "Não participar", pendencia: "sem preço de tabela", newPrice: null };
+    
+    const newPrice = Math.round((p + 1e-9) * 100) / 100;
+    
+    let pendencia = "";
+    if (originalPrice && newPrice > originalPrice) {
+      pendencia = "ALERTA: preço calculado MAIOR que preço original";
+    }
+    
+    return { 
+      action: "Participar", 
+      pendencia, 
+      newPrice,
+      tabelaCalculada: p
+    };
+  }
+}
