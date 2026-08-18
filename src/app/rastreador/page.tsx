@@ -472,6 +472,14 @@ export default function RastreadorMatrizPage() {
                   <p className="text-xl font-bold text-foreground">
                     {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(selectedCell.preco_tabela)}
                   </p>
+                  {selectedCell.reducao_tarifa && selectedCell.reducao_tarifa !== "Não" && selectedCell.reducao_tarifa !== "0" && (
+                    <div className="mt-2 pt-2 border-t border-border flex flex-col gap-0.5">
+                      <span className="text-[10px] text-muted-foreground font-semibold uppercase">Piso Aceitável (-5%)</span>
+                      <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
+                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(selectedCell.preco_tabela * 0.95)}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
 
