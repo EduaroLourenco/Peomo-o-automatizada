@@ -92,7 +92,7 @@ export async function surgicallyEditExcel(
       const valStr = isString ? escapeXml(String(update.value)) : update.value;
 
       // Localiza a célula
-      const cellRegex = new RegExp(`<c[^>]*r=["']${cellRef}["'][^>]*>.*?</c>`, 's');
+      const cellRegex = new RegExp(`<c[^>]*r=["']${cellRef}["'][^>]*>[\\s\\S]*?</c>`);
       const cellMatch = newRowContent.match(cellRegex);
 
       if (cellMatch) {
@@ -100,7 +100,7 @@ export async function surgicallyEditExcel(
         let cellTag = cellMatch[0];
         
         // Remove conteúdo atual (a tag <v> interna ou <is>)
-        cellTag = cellTag.replace(/<v>.*?<\/v>/s, '').replace(/<is>.*?<\/is>/s, '');
+        cellTag = cellTag.replace(/<v>[\s\S]*?<\/v>/g, '').replace(/<is>[\s\S]*?<\/is>/g, '');
         
         if (isString) {
           const sstIdx = getSharedStringIndex(String(update.value));

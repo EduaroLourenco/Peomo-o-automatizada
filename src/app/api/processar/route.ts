@@ -36,7 +36,7 @@ async function processSingleFile(file: File, formulaData: any, fileCampanha: str
 
   const workbook = new ExcelJS.Workbook();
   // Read purely to find indices and build updates
-  await workbook.xlsx.load(buffer);
+  await workbook.xlsx.load(buffer as any);
   
   let targetWorksheet: ExcelJS.Worksheet | null = null;
   let headerRowIndex = 0;
@@ -209,7 +209,7 @@ export async function POST(req: NextRequest) {
 
       const zipBuffer = await zip.generateAsync({ type: "nodebuffer" });
       
-      return new NextResponse(zipBuffer, {
+      return new NextResponse(zipBuffer as any, {
         status: 200,
         headers: {
           "Content-Disposition": `attachment; filename="promocoes_processadas.zip"`,
@@ -223,7 +223,7 @@ export async function POST(req: NextRequest) {
         const fileCampanha = file.name.replace(/\.xlsx$/i, '');
         const processedBuffer = await processSingleFile(file, formulaData, fileCampanha, extraDiscount);
         
-        return new NextResponse(processedBuffer, {
+        return new NextResponse(processedBuffer as any, {
           status: 200,
           headers: {
             "Content-Disposition": `attachment; filename="processado_${file.name}"`,
