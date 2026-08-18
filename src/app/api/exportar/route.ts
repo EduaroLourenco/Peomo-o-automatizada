@@ -11,7 +11,7 @@ export async function POST(req: Request) {
     const worksheet = workbook.addWorksheet('Rastreador');
 
     // Create header row
-    const headers = ['SKU', 'MLB', ...columns];
+    const headers = ['SKU', 'MLB', 'Tipo Anúncio', ...columns];
     const headerRow = worksheet.addRow(headers);
     
     // Style headers
@@ -34,7 +34,7 @@ export async function POST(req: Request) {
     // Add data
     for (const skuGroup of rows) {
       for (const mlbGroup of skuGroup.mlbs) {
-        const rowData: any[] = [skuGroup.sku, mlbGroup.mlb];
+        const rowData: any[] = [skuGroup.sku, mlbGroup.mlb, mlbGroup.tipoAnuncio || '-'];
         
         for (const camp of columns) {
           const cellData = mlbGroup.campaigns[camp];
@@ -51,7 +51,7 @@ export async function POST(req: Request) {
         
         newRow.eachCell((cell, colNumber) => {
           cell.alignment = { horizontal: 'center', vertical: 'middle' };
-          if (colNumber > 2 && cell.value !== '-') {
+          if (colNumber > 3 && cell.value !== '-') {
             // Se o texto contém Aprovado, pintar de verde suave
             if (String(cell.value).includes('Aprovado')) {
               cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE6F4EA' } };
@@ -65,7 +65,7 @@ export async function POST(req: Request) {
 
     // Auto-fit columns
     worksheet.columns.forEach((column, index) => {
-      column.width = index < 2 ? 20 : 35;
+      column.width = index < 3 ? 20 : 35;
     });
 
     // Generate buffer

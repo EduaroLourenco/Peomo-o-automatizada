@@ -75,6 +75,7 @@ async function processSingleFile(file: File, formulaData: any, fileCampanha: str
   const saleFeeColIndex = findCol(["sale_fee", "redução", "tarifa"]);
   const actionColIndex = findCol(["action", "o que você quer fazer"]);
   const dateColIndex = findCol(["date", "data"]);
+  const tipoAnuncioColIndex = findCol(["tipo de anúncio", "listing_type", "tipo de anuncio"]);
   
   if (skuColIndex === -1 || mlbColIndex === -1 || finalPriceColIndex === -1 || actionColIndex === -1) {
     throw new Error(`Planilha ${file.name}: Faltam colunas obrigatórias (ITEM_ID, SKU, FINAL_PRICE ou ACTION)`);
@@ -144,7 +145,9 @@ async function processSingleFile(file: File, formulaData: any, fileCampanha: str
     let saleFee = sfStr ? parseFloat(sfStr) : null;
 
     const opStr = originalPriceColIndex !== -1 ? extractText(row.getCell(originalPriceColIndex).value).replace(',', '.') : "";
-    let originalPrice = opStr ? parseFloat(opStr) : null;
+    const originalPrice = opStr ? parseFloat(opStr) : null;
+
+    const tipoAnuncio = tipoAnuncioColIndex !== -1 ? extractText(row.getCell(tipoAnuncioColIndex).value).trim() : "N/A";
 
     // Processar usando o novo motor matemático
     const result = processItem(mlb, sku, saleFee, finalPrice, originalPrice, formulaData, positiveAction, negativeAction, extraDiscount);
@@ -166,7 +169,8 @@ async function processSingleFile(file: File, formulaData: any, fileCampanha: str
       preco_oferta: result.newPrice !== null ? result.newPrice : (finalPrice || 0),
       preco_tabela: result.tabelaCalculada || 0,
       status_aprovacao: result.action === "Aplicar proposta" || result.action === "Participar" ? "Aprovado" : "Reprovado (" + result.pendencia + ")",
-      reducao_tarifa: sfStr || "Não"
+      reducao_tarifa: sfStr || "Não",
+      tipo_anuncio: tipoAnuncio
     });
   }
 

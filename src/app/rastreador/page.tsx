@@ -19,6 +19,7 @@ type Historico = {
   status_aprovacao: string;
   data_processamento: string;
   reducao_tarifa: string;
+  tipo_anuncio?: string;
 };
 
 export default function RastreadorMatrizPage() {
@@ -127,10 +128,14 @@ export default function RastreadorMatrizPage() {
     });
 
     const rows = Array.from(skuMap.entries()).map(([sku, mlbMap]) => {
-      const mlbs = Array.from(mlbMap.entries()).map(([mlb, campaigns]) => ({
-        mlb,
-        campaigns
-      }));
+      const mlbs = Array.from(mlbMap.entries()).map(([mlb, campaigns]) => {
+        const tipoAnuncio = Object.values(campaigns)[0]?.tipo_anuncio || 'N/A';
+        return {
+          mlb,
+          tipoAnuncio,
+          campaigns
+        };
+      });
       return { sku, mlbs };
     });
 
@@ -334,7 +339,18 @@ export default function RastreadorMatrizPage() {
                             </TableCell>
                           )}
                           <TableCell className="sticky left-[180px] bg-background z-10 border-r border-border shadow-[4px_0_12px_-4px_rgba(0,0,0,0.05)]">
-                            <span className="text-xs font-mono text-muted-foreground bg-muted px-2 py-1 rounded">{mlbGroup.mlb}</span>
+                            <div className="flex flex-col gap-1 items-start">
+                              <span className="text-xs font-mono text-muted-foreground bg-muted px-2 py-1 rounded">{mlbGroup.mlb}</span>
+                              {mlbGroup.tipoAnuncio && mlbGroup.tipoAnuncio !== "N/A" && (
+                                <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${
+                                  mlbGroup.tipoAnuncio.toLowerCase().includes('premium') 
+                                    ? 'bg-purple-500/10 text-purple-600 border border-purple-500/20' 
+                                    : 'bg-blue-500/10 text-blue-600 border border-blue-500/20'
+                                }`}>
+                                  {mlbGroup.tipoAnuncio}
+                                </span>
+                              )}
+                            </div>
                           </TableCell>
                         
                         {pivotData.columns.map(camp => {
