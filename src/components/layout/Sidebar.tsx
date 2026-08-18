@@ -4,7 +4,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { Home, FileSpreadsheet, History, Settings, Search } from "lucide-react";
+import { Home, FileSpreadsheet, History, Settings, Search, Database } from "lucide-react";
 
 const sidebarNavItems = [
   {
@@ -26,6 +26,11 @@ const sidebarNavItems = [
     title: "Rastreador de Produto",
     href: "/rastreador",
     icon: Search,
+  },
+  {
+    title: "Catálogo ML",
+    href: "/catalogo",
+    icon: Database,
   },
   {
     title: "Configurações",

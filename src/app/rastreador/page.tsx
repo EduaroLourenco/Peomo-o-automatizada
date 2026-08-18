@@ -5,7 +5,7 @@ import { useEffect, useState, useMemo, Fragment } from "react";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Search, Loader2, Calendar, Filter, X, CheckCircle2, XCircle, Info, Tag, Package, Flame, Download } from "lucide-react";
+import { Search, Loader2, Calendar, Filter, X, CheckCircle2, XCircle, Info, Tag, Package, Flame, Download, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import curvaAData from "@/data/curva_a.json";
 
@@ -22,8 +22,18 @@ type Historico = {
   tipo_anuncio?: string;
 };
 
+type Catalogo = {
+  mlb: string;
+  sku: string;
+  tipo_anuncio: string | null;
+  preco_atual: number | null;
+  comissao_atual: number | null;
+  status: string | null;
+};
+
 export default function RastreadorMatrizPage() {
   const [data, setData] = useState<Historico[]>([]);
+  const [catalogoData, setCatalogoData] = useState<Catalogo[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Filters
@@ -31,6 +41,7 @@ export default function RastreadorMatrizPage() {
   const [selectedPeriods, setSelectedPeriods] = useState<string[]>([]);
   const [selectedCampaigns, setSelectedCampaigns] = useState<string[]>([]);
   const [onlyCurvaA, setOnlyCurvaA] = useState(false);
+  const [onlySemCampanha, setOnlySemCampanha] = useState(false);
   
   // Popover state
   const [selectedCell, setSelectedCell] = useState<Historico | null>(null);
@@ -38,16 +49,20 @@ export default function RastreadorMatrizPage() {
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
-      const { data: historico, error } = await supabase
-        .from('historico_promocoes')
-        .select('*')
-        .order('data_processamento', { ascending: false }); // Latest first
+      const [histRes, catRes] = await Promise.all([
+        supabase.from('historico_promocoes').select('*').order('data_processamento', { ascending: false }),
+        supabase.from('catalogo_ml').select('*')
+      ]);
 
-      if (error) {
-        console.error("Erro ao buscar histórico:", error);
-      } else {
-        setData(historico || []);
+      if (histRes.error) console.error("Erro ao buscar histórico:", histRes.error);
+      else setData(histRes.data || []);
+
+      if (catRes.error && catRes.error.code !== "PGRST204") {
+        console.error("Erro ao buscar catalogo:", catRes.error);
+      } else if (catRes.data) {
+        setCatalogoData(catRes.data);
       }
+      
       setLoading(false);
     }
     fetchData();
@@ -82,7 +97,7 @@ export default function RastreadorMatrizPage() {
     );
   };
 
-  // Filtered Data
+  // Filtered Historico
   const filteredData = useMemo(() => {
     return data.filter(item => {
       const matchSearch = searchTerm === "" || 
@@ -102,45 +117,66 @@ export default function RastreadorMatrizPage() {
     });
   }, [data, searchTerm, selectedCampaigns, selectedPeriods, onlyCurvaA]);
 
-  // Pivot Data Grouping
+  // Pivot Data Grouping (Historico + Catalogo)
   const pivotData = useMemo(() => {
     const activeCampaigns = new Set<string>();
     filteredData.forEach(d => activeCampaigns.add(d.campanha));
     const columns = Array.from(activeCampaigns).sort();
 
-    const skuMap = new Map<string, Map<string, Record<string, Historico>>>();
+    const skuMap = new Map<string, Map<string, { catalogo: Catalogo | null, campaigns: Record<string, Historico> }>>();
 
+    const getMlbMap = (sku: string, mlb: string) => {
+      if (!skuMap.has(sku)) skuMap.set(sku, new Map());
+      const mlbMap = skuMap.get(sku)!;
+      if (!mlbMap.has(mlb)) mlbMap.set(mlb, { catalogo: null, campaigns: {} });
+      return mlbMap.get(mlb)!;
+    };
+
+    // Inserir histórico filtrado
     filteredData.forEach(item => {
-      if (!skuMap.has(item.sku)) {
-        skuMap.set(item.sku, new Map());
-      }
-      
-      const mlbMap = skuMap.get(item.sku)!;
-      if (!mlbMap.has(item.mlb)) {
-        mlbMap.set(item.mlb, {});
-      }
-      
-      const campaigns = mlbMap.get(item.mlb)!;
-      // Only keep the latest record for each campaign per product
-      if (!campaigns[item.campanha]) {
-        campaigns[item.campanha] = item;
+      const entry = getMlbMap(item.sku, item.mlb);
+      if (!entry.campaigns[item.campanha]) {
+        entry.campaigns[item.campanha] = item;
       }
     });
 
-    const rows = Array.from(skuMap.entries()).map(([sku, mlbMap]) => {
-      const mlbs = Array.from(mlbMap.entries()).map(([mlb, campaigns]) => {
-        const tipoAnuncio = Object.values(campaigns)[0]?.tipo_anuncio || 'N/A';
+    // Inserir catálogo (sujeito à busca textual)
+    catalogoData.forEach(item => {
+      const matchSearch = searchTerm === "" || 
+                          item.sku.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                          item.mlb.toLowerCase().includes(searchTerm.toLowerCase());
+      
+      const isCurvaA = curvaAData.skus.includes(item.sku) || curvaAData.mlbs.includes(item.mlb);
+      const matchCurvaA = onlyCurvaA ? isCurvaA : true;
+
+      if (matchSearch && matchCurvaA) {
+        const entry = getMlbMap(item.sku, item.mlb);
+        entry.catalogo = item;
+      }
+    });
+
+    // Formatar linhas e aplicar filtro de "Sem Campanha"
+    let rows = Array.from(skuMap.entries()).map(([sku, mlbMap]) => {
+      let mlbs = Array.from(mlbMap.entries()).map(([mlb, data]) => {
+        const tipoAnuncio = data.catalogo?.tipo_anuncio || Object.values(data.campaigns)[0]?.tipo_anuncio || 'N/A';
         return {
           mlb,
           tipoAnuncio,
-          campaigns
+          precoAtual: data.catalogo?.preco_atual,
+          comissaoAtual: data.catalogo?.comissao_atual,
+          campaigns: data.campaigns
         };
       });
+
+      if (onlySemCampanha) {
+        mlbs = mlbs.filter(m => Object.keys(m.campaigns).length === 0);
+      }
+
       return { sku, mlbs };
-    });
+    }).filter(row => row.mlbs.length > 0);
 
     return { columns, rows };
-  }, [filteredData]);
+  }, [filteredData, catalogoData, searchTerm, onlyCurvaA, onlySemCampanha]);
 
   const [exporting, setExporting] = useState(false);
 
@@ -175,7 +211,6 @@ export default function RastreadorMatrizPage() {
   return (
     <div className="flex flex-col gap-6 animate-fade-in pb-10 max-w-[1600px] mx-auto px-4 w-full">
       
-      {/* Header Banner */}
       <div className="rounded-xl p-6 border border-border bg-card shadow-sm flex flex-col md:flex-row justify-between items-center gap-6">
         <div className="flex flex-col gap-2 w-full">
           <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-foreground flex items-center">
@@ -199,6 +234,18 @@ export default function RastreadorMatrizPage() {
           </button>
           
           <button
+            onClick={() => setOnlySemCampanha(!onlySemCampanha)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg border font-semibold whitespace-nowrap transition-colors ${
+              onlySemCampanha 
+                ? 'bg-rose-500/10 border-rose-500/50 text-rose-500' 
+                : 'bg-card border-border text-muted-foreground hover:bg-muted'
+            }`}
+          >
+            <EyeOff className={`w-4 h-4 ${onlySemCampanha ? 'text-rose-500' : 'text-muted-foreground'}`} />
+            Sem Campanha
+          </button>
+          
+          <button
             onClick={exportToExcel}
             disabled={exporting || pivotData.rows.length === 0}
             className="flex items-center gap-2 px-4 py-2 rounded-lg border border-border bg-card text-foreground font-semibold whitespace-nowrap hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -209,10 +256,8 @@ export default function RastreadorMatrizPage() {
         </div>
       </div>
 
-      {/* Filter Bar */}
       <Card className="border-border bg-card shadow-sm rounded-xl overflow-visible z-20">
         <div className="p-5 flex flex-col xl:flex-row gap-4">
-          
           <div className="w-full xl:w-1/3 space-y-1.5">
             <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Produto (SKU ou MLB)</label>
             <div className="relative">
@@ -276,7 +321,6 @@ export default function RastreadorMatrizPage() {
         </div>
       </Card>
 
-      {/* Pivot Table Area */}
       <Card className="border-border bg-card shadow-sm rounded-xl overflow-hidden">
         {loading ? (
           <div className="flex justify-center items-center py-32">
@@ -293,6 +337,8 @@ export default function RastreadorMatrizPage() {
                 <TableRow className="border-b border-border hover:bg-transparent bg-muted/50">
                   <TableHead className="text-foreground font-semibold min-w-[180px] sticky left-0 bg-muted/50 z-10 border-r border-border">SKU</TableHead>
                   <TableHead className="text-foreground font-semibold min-w-[150px] sticky left-[180px] bg-muted/50 z-10 border-r border-border">MLB</TableHead>
+                  <TableHead className="text-foreground font-semibold min-w-[120px] text-center border-r border-border">Preço Atual</TableHead>
+                  <TableHead className="text-foreground font-semibold min-w-[100px] text-center border-r border-border">Comissão</TableHead>
                   {pivotData.columns.map(camp => {
                     const parts = camp.split(' | ');
                     const title = parts[0];
@@ -351,6 +397,12 @@ export default function RastreadorMatrizPage() {
                                 </span>
                               )}
                             </div>
+                          </TableCell>
+                          <TableCell className="text-center font-semibold text-foreground border-r border-border">
+                            {mlbGroup.precoAtual ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(mlbGroup.precoAtual) : '-'}
+                          </TableCell>
+                          <TableCell className="text-center font-medium text-muted-foreground border-r border-border">
+                            {mlbGroup.comissaoAtual ? `${mlbGroup.comissaoAtual}%` : '-'}
                           </TableCell>
                         
                         {pivotData.columns.map(camp => {
@@ -459,15 +511,11 @@ export default function RastreadorMatrizPage() {
                       if (val.includes('%')) return val;
                       const num = parseFloat(val.replace(',', '.'));
                       if (!isNaN(num)) {
-                        // Se for menor que 1 (ex: 0.06), é 6%
                         if (num < 1) return `${Math.round(num * 100)}%`;
-                        // Se for maior que 1, provavelmente é o valor absoluto em R$ (ex: 90.60).
-                        // Calculamos a porcentagem baseada no preco_oferta
                         const preco = selectedCell.preco_oferta;
                         if (preco && preco > 0) {
                           return `${Math.round((num / preco) * 100)}%`;
                         }
-                        // Fallback se não tiver preço oferta
                         return `R$ ${num.toFixed(2).replace('.', ',')}`;
                       }
                       return val;

@@ -11,7 +11,7 @@ export async function POST(req: Request) {
     const worksheet = workbook.addWorksheet('Rastreador');
 
     // Create header row
-    const headers = ['SKU', 'MLB', 'Tipo Anúncio', ...columns];
+    const headers = ['SKU', 'MLB', 'Tipo Anúncio', 'Preço Atual', 'Comissão', ...columns];
     const headerRow = worksheet.addRow(headers);
     
     // Style headers
@@ -34,7 +34,13 @@ export async function POST(req: Request) {
     // Add data
     for (const skuGroup of rows) {
       for (const mlbGroup of skuGroup.mlbs) {
-        const rowData: any[] = [skuGroup.sku, mlbGroup.mlb, mlbGroup.tipoAnuncio || '-'];
+        const rowData: any[] = [
+          skuGroup.sku, 
+          mlbGroup.mlb, 
+          mlbGroup.tipoAnuncio || '-',
+          mlbGroup.precoAtual ? `R$ ${mlbGroup.precoAtual.toFixed(2).replace('.', ',')}` : '-',
+          mlbGroup.comissaoAtual ? `${mlbGroup.comissaoAtual}%` : '-'
+        ];
         
         for (const camp of columns) {
           const cellData = mlbGroup.campaigns[camp];
@@ -50,8 +56,8 @@ export async function POST(req: Request) {
         
         newRow.eachCell((cell, colNumber) => {
           cell.alignment = { horizontal: 'center', vertical: 'middle' };
-          if (colNumber > 3 && cell.value !== '-') {
-            const camp = columns[colNumber - 4];
+          if (colNumber > 5 && cell.value !== '-') {
+            const camp = columns[colNumber - 6];
             const cellData = mlbGroup.campaigns[camp];
             if (cellData && cellData.status_aprovacao === 'Aprovado') {
               cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE6F4EA' } };
