@@ -6,6 +6,7 @@ import JSZip from "jszip";
 import { fetchFormulaBaseCompleta } from "@/lib/google-sheets";
 import { processItem } from "@/lib/excel-surgeon";
 import { surgicallyEditExcel } from "@/lib/excel-xml";
+import { generateReport, ReportItem } from "@/lib/report-generator";
 
 // A utility to get column letter from 1-based index (e.g. 1 -> A, 2 -> B)
 function getColLetter(colIdx: number): string {
@@ -34,6 +35,7 @@ function extractText(val: any): string {
 async function processSingleFile(file: File, formulaData: any, fileCampanha: string, extraDiscount: number = 0) {
   const arrayBuffer = await file.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
+  const reportItems: ReportItem[] = [];
 
   const workbook = new ExcelJS.Workbook();
   // Read purely to find indices and build updates
@@ -43,21 +45,27 @@ async function processSingleFile(file: File, formulaData: any, fileCampanha: str
   let headerRowIndex = 0;
 
   for (const worksheet of workbook.worksheets) {
+    let foundHeaders = [];
     for (let i = 1; i <= Math.min(100, worksheet.rowCount); i++) {
       const row = worksheet.getRow(i);
       const rowValues = row.values as any[];
-      // The Python guide says to look for ITEM_ID in row 1
-      if (rowValues && rowValues.some(v => extractText(v).toLowerCase() === "item_id" || extractText(v).toLowerCase() === "sku")) {
-        headerRowIndex = i;
-        targetWorksheet = worksheet;
-        break;
+      if (rowValues && rowValues.some(v => {
+        const text = extractText(v).toLowerCase();
+        return text === "item_id" || text === "sku" || text === "número do anúncio" || text === "código do anúncio";
+      })) {
+        foundHeaders.push(i);
       }
     }
-    if (targetWorksheet) break;
+    
+    if (foundHeaders.length > 0) {
+      headerRowIndex = foundHeaders[foundHeaders.length - 1]; // Pick the deepest header row (for merged headers)
+      targetWorksheet = worksheet;
+      break;
+    }
   }
 
   if (!targetWorksheet || headerRowIndex === 0) {
-    throw new Error(`Planilha ${file.name}: Coluna ITEM_ID/SKU não encontrada.`);
+    throw new Error(`Planilha ${file.name}: Coluna ITEM_ID/SKU/Número do anúncio não encontrada.`);
   }
 
   const headerRow = targetWorksheet.getRow(headerRowIndex).values as any[];
@@ -69,16 +77,19 @@ async function processSingleFile(file: File, formulaData: any, fileCampanha: str
   });
 
   const skuColIndex = findCol(["sku"]);
-  const mlbColIndex = findCol(["item_id", "mlb", "anúncio"]);
+  const mlbColIndex = findCol(["item_id", "mlb", "número do anúncio", "código do anúncio"]);
   const originalPriceColIndex = findCol(["original_price", "preço original"]);
+  
+  // Achar preço final: algumas planilhas tem duas colunas "preço final" (uma pro ML, outra pra desconto extra). 
+  // O indexOf/findIndex vai pegar a primeira, que geralmente é a que queremos editar.
   const finalPriceColIndex = findCol(["final_price", "preço final"]);
-  const saleFeeColIndex = findCol(["sale_fee", "redução", "tarifa"]);
-  const actionColIndex = findCol(["action", "o que você quer fazer"]);
-  const dateColIndex = findCol(["date", "data"]);
+  const saleFeeColIndex = findCol(["sale_fee", "redução", "tarifa de venda"]);
+  const actionColIndex = findCol(["action", "o que você quer fazer", "ação"]);
+  const dateColIndex = findCol(["date", "data", "vigência"]);
   const tipoAnuncioColIndex = findCol(["tipo de anúncio", "listing_type", "tipo de anuncio"]);
   
   if (skuColIndex === -1 || mlbColIndex === -1 || finalPriceColIndex === -1 || actionColIndex === -1) {
-    throw new Error(`Planilha ${file.name}: Faltam colunas obrigatórias (ITEM_ID, SKU, FINAL_PRICE ou ACTION)`);
+    throw new Error(`Planilha ${file.name}: Faltam colunas obrigatórias. SKU(${skuColIndex}), MLB(${mlbColIndex}), PREÇO_FINAL(${finalPriceColIndex}), AÇÃO(${actionColIndex})`);
   }
 
   let localCampanha = fileCampanha;
@@ -162,12 +173,34 @@ async function processSingleFile(file: File, formulaData: any, fileCampanha: str
       xmlUpdates.push({ rowIndex: i, colLetter: fpLetter, value: result.newPrice });
     }
 
+    const tabela = result.tabelaCalculada || 0;
+    const diferencaRS = finalPrice !== null ? finalPrice - tabela : null;
+    let diferencaPerc = null;
+    if (finalPrice !== null && tabela > 0) {
+      diferencaPerc = (finalPrice - tabela) / tabela;
+    }
+
+    reportItems.push({
+      campanha: localCampanha,
+      mlb,
+      sku,
+      tipoCampanha: saleFee !== null && saleFee > 0 ? "Com Redução" : "Sem Redução",
+      precoOriginal: originalPrice,
+      precoOfertadoML: finalPrice,
+      tarifaReduzida: saleFee,
+      precoTabela: tabela,
+      diferencaRS,
+      diferencaPerc,
+      status: result.action === "Aplicar proposta" || result.action === "Participar" ? "Aprovado" : "Reprovado",
+      motivo: result.pendencia || "OK"
+    });
+
     historyEntries.push({
       mlb,
       sku,
       campanha: localCampanha,
       preco_oferta: result.newPrice !== null ? result.newPrice : (finalPrice || 0),
-      preco_tabela: result.tabelaCalculada || 0,
+      preco_tabela: tabela,
       status_aprovacao: result.action === "Aplicar proposta" || result.action === "Participar" ? "Aprovado" : "Reprovado (" + result.pendencia + ")",
       reducao_tarifa: sfStr || "Não",
       tipo_anuncio: tipoAnuncio
@@ -181,7 +214,7 @@ async function processSingleFile(file: File, formulaData: any, fileCampanha: str
 
   // Realizar edição cirúrgica no ZIP
   const surgicalBuffer = await surgicallyEditExcel(buffer, targetWorksheet.name, xmlUpdates);
-  return surgicalBuffer;
+  return { surgicalBuffer, reportItems };
 }
 
 export async function POST(req: NextRequest) {
@@ -197,6 +230,7 @@ export async function POST(req: NextRequest) {
     }
 
     const formulaData = await fetchFormulaBaseCompleta();
+    let allReportItems: ReportItem[] = [];
 
     if (format === "zip" || files.length > 1) {
       const zip = new JSZip();
@@ -204,12 +238,18 @@ export async function POST(req: NextRequest) {
       for (const file of files) {
         try {
           const fileCampanha = file.name.replace(/\.xlsx$/i, '');
-          const processedBuffer = await processSingleFile(file, formulaData, fileCampanha, extraDiscount);
-          zip.file(`processado_${file.name}`, processedBuffer);
+          const { surgicalBuffer, reportItems } = await processSingleFile(file, formulaData, fileCampanha, extraDiscount);
+          zip.file(`processado_${file.name}`, surgicalBuffer);
+          allReportItems = [...allReportItems, ...reportItems];
         } catch (e: any) {
           console.error(`Erro processando ${file.name}:`, e);
           return NextResponse.json({ error: `Erro no arquivo ${file.name}: ${e.message}` }, { status: 400 });
         }
+      }
+
+      if (allReportItems.length > 0) {
+        const reportBuffer = await generateReport(allReportItems);
+        zip.file("Relatorio_Gerencial_Campanhas.xlsx", reportBuffer);
       }
 
       const zipBuffer = await zip.generateAsync({ type: "nodebuffer" });
@@ -226,12 +266,15 @@ export async function POST(req: NextRequest) {
       try {
         const file = files[0];
         const fileCampanha = file.name.replace(/\.xlsx$/i, '');
-        const processedBuffer = await processSingleFile(file, formulaData, fileCampanha, extraDiscount);
+        const { reportItems } = await processSingleFile(file, formulaData, fileCampanha, extraDiscount);
+        allReportItems = [...allReportItems, ...reportItems];
         
-        return new NextResponse(processedBuffer as any, {
+        const reportBuffer = await generateReport(allReportItems);
+
+        return new NextResponse(reportBuffer as any, {
           status: 200,
           headers: {
-            "Content-Disposition": `attachment; filename="processado_${file.name}"`,
+            "Content-Disposition": `attachment; filename="Relatorio_Gerencial_Campanhas.xlsx"`,
             "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
           },
         });
